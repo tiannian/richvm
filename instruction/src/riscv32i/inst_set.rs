@@ -105,7 +105,7 @@ impl<'a, M> RiscV32iInstruction<'a, M> {
         if res {
             **pc += inst.imm_sb();
         } else {
-            **pc += 4;
+            self.next_inst(pc)
         }
 
         Ok(())
@@ -136,6 +136,19 @@ impl<'a, M> RiscV32iInstruction<'a, M> {
 
         self.clear_x0(regs);
         self.next_inst(pc);
+    }
+
+    pub fn sset(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) -> Result<()> {
+        let inst = Inst::new(self.inst);
+
+        match inst.funct3() {
+            0b000 => {}
+            0b001 => {}
+            0b010 => {}
+            _ => return Err(Error::UnsupportFunct3),
+        }
+
+        Ok(())
     }
 
     pub fn iset(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) -> Result<()> {
@@ -250,7 +263,8 @@ impl<M: Memory<Register = RiscVRegister>> Instruction<M> for RiscV32iInstruction
             0b1100111 => self.jalr(pc, regs),
             0b1100011 => self.bset(pc, regs)?,
             0b0000011 => self.lset(pc, regs),
-            0b0100011 => self.iset(pc, regs)?,
+            0b0100011 => self.sset(pc, regs)?,
+            0b0010011 => self.iset(pc, regs)?,
             0b0110011 => self.opset(pc, regs)?,
             _ => return Err(Error::UnsupportOpcode),
         }

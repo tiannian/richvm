@@ -2,9 +2,8 @@
 
 pub mod riscv32i;
 
-pub mod utils;
-
 mod error;
 pub use error::*;
 
-pub mod prelude;
+mod prelude;
+pub use prelude::*;

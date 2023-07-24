@@ -17,10 +17,6 @@ impl Inst {
         ((self.inst & 0xF80) >> 7) as usize
     }
 
-    pub fn imm_u(&self) -> u32 {
-        self.inst & 0xFFFFF000
-    }
-
     pub fn funct3(&self) -> u8 {
         ((self.inst & 0x7000) >> 12) as u8
     }
@@ -35,6 +31,18 @@ impl Inst {
 
     pub fn rs2(&self) -> usize {
         ((self.inst & 0x01F0000) >> 20) as usize
+    }
+
+    pub fn imm_u(&self) -> u32 {
+        self.inst & 0xFFFFF000
+    }
+
+    pub fn imm_s(&self) -> u32 {
+        ((self.inst & 0xFE000000) >> 20) | ((self.inst & 0xF80) >> 7)
+    }
+
+    pub fn imm_s_symbol(&self) -> i32 {
+        (((self.inst & 0xFE000000) as i32) >> 20) | ((self.inst & 0xF80) >> 7) as i32
     }
 
     pub fn imm_sb(&self) -> u32 {
