@@ -8,5 +8,3 @@ mod error;
 pub use error::*;
 
 pub mod prelude;
-
-pub mod types;
