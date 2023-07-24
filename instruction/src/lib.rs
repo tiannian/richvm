@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod riscv;
 pub mod riscv32i;
 
 mod error;

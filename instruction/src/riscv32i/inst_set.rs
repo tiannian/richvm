@@ -1,109 +1,97 @@
-use core::ops::{Deref, DerefMut};
-
 use crate::{
     prelude::{Instruction, Memory},
-    Error, Result,
+    riscv::Inst,
+    Error, MemoryMut, Result,
 };
 
-use super::inst::Inst;
-
-pub enum RiscVTrap {}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RiscVRegister(pub u32);
-
-impl Deref for RiscVRegister {
-    type Target = u32;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for RiscVRegister {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl RiscVRegister {
-    pub fn symbol(&self) -> i32 {
-        self.0 as i32
-    }
-}
-
-pub struct RiscV32iInstruction<'a, M> {
+/// Instruction for lite of RiscVi32
+///
+/// These instruction no CSR and FENCE include
+pub struct RiscV32iLiteInstruction<'a, M> {
     inst: [u8; 4],
     memory: &'a mut M,
 }
 
-impl<'a, M> RiscV32iInstruction<'a, M> {
+impl<'a, M> RiscV32iLiteInstruction<'a, M> {
     pub fn new(inst: [u8; 4], memory: &'a mut M) -> Self {
         Self { inst, memory }
     }
 
-    fn clear_x0(&self, regs: &mut [RiscVRegister]) {
-        *regs[0] = 0;
+    fn clear_x0(&self, regs: &mut [u32]) {
+        regs[0] = 0;
     }
 
-    fn next_inst(&self, pc: &mut RiscVRegister) {
-        **pc += 4;
+    fn next_inst(&self, pc: &mut u32) {
+        *pc += 4;
     }
 
-    pub fn lui(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) {
+    pub fn lui(self, pc: &mut u32, regs: &mut [u32]) {
         let inst = Inst::new(self.inst);
 
-        let pos = inst.rd();
-        *regs[pos] = inst.imm_u();
+        regs[inst.rd()] = inst.imm_u();
 
         self.clear_x0(regs);
         self.next_inst(pc);
     }
 
-    pub fn auipc(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) {
+    pub fn auipc(self, pc: &mut u32, regs: &mut [u32]) {
         let inst = Inst::new(self.inst);
 
-        **pc += inst.imm_u();
-        *regs[inst.rd()] = **pc;
+        regs[inst.rd()] = *pc + inst.imm_u();
 
         self.clear_x0(regs);
         self.next_inst(pc);
     }
 
-    pub fn jal(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) {
+    pub fn jal(self, pc: &mut u32, regs: &mut [u32]) {
         let inst = Inst::new(self.inst);
 
-        **pc = ((**pc as i32) + inst.imm_uj_symbol()) as u32;
+        regs[inst.rd()] = *pc + 4;
+        let (r, of) = pc.overflowing_add_signed(inst.imm_uj_symbol());
+
+        if of {
+            log::debug!("JAL overflow");
+        }
+
+        *pc = r;
 
         // TODO: Jump check
 
-        *regs[inst.rd()] = **pc + 4;
-
-        *regs[0] = 0;
+        self.clear_x0(regs);
     }
 
-    pub fn jalr(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) {
+    pub fn jalr(self, pc: &mut u32, regs: &mut [u32]) {
         let inst = Inst::new(self.inst);
 
-        **pc = (inst.imm_i() + *regs[inst.rs1()]) & (!1);
-        *regs[inst.rd()] = **pc;
+        regs[inst.rd()] = *pc + 4;
+        let (r, of) = pc.overflowing_add_signed(inst.imm_i_symbol());
+
+        if of {
+            log::debug!("JALR overflow");
+        }
+
+        *pc = r & (!1);
     }
 
-    pub fn bset(self, pc: &mut RiscVRegister, regs: &[RiscVRegister]) -> Result<()> {
+    pub fn bset(self, pc: &mut u32, regs: &[u32]) -> Result<()> {
         let inst = Inst::new(self.inst);
 
         let res = match inst.funct3() {
             0b000 => regs[inst.rs1()] == regs[inst.rs2()],
             0b001 => regs[inst.rs1()] != regs[inst.rs2()],
-            0b100 => (*regs[inst.rs1()] as i32) < (*regs[inst.rs2()] as i32),
-            0b101 => (*regs[inst.rs1()] as i32) >= (*regs[inst.rs2()] as i32),
+            0b100 => (regs[inst.rs1()] as i32) < (regs[inst.rs2()] as i32),
+            0b101 => (regs[inst.rs1()] as i32) >= (regs[inst.rs2()] as i32),
             0b110 => regs[inst.rs1()] < regs[inst.rs2()],
             0b111 => regs[inst.rs1()] >= regs[inst.rs2()],
             _ => return Err(Error::UnsupportFunct3),
         };
 
         if res {
-            **pc += inst.imm_sb();
+            let (r, of) = pc.overflowing_add_signed(inst.imm_sb_symbol());
+            if of {
+                log::debug!("BRANCH overflow");
+            }
+            *pc = r;
         } else {
             self.next_inst(pc)
         }
@@ -111,51 +99,67 @@ impl<'a, M> RiscV32iInstruction<'a, M> {
         Ok(())
     }
 
-    pub fn lset(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister])
+    pub fn lset(self, pc: &mut u32, regs: &mut [u32]) -> Result<()>
     where
-        M: Memory<Register = RiscVRegister>,
+        M: Memory<Register = u32>,
     {
         let inst = Inst::new(self.inst);
         let funct3 = inst.funct3();
-        let length = funct3 & 0x3;
-        let m = self.memory.load(regs[inst.rd()], length);
 
-        let mut res = [0u8; 4];
-
-        for i in 0..(length + 1) {
-            let i = i as usize;
-            res[i] = m[i];
-        }
-        if 0x4 & funct3 != 0 && m[length as usize] & 0x80 != 0 {
-            for i in (3 - length)..4 {
-                res[i as usize] = 0xFF;
-            }
+        let (offset, of) = regs[inst.rs1()].overflowing_add_signed(inst.imm_i_symbol());
+        if of {
+            log::debug!("LOAD overflow");
         }
 
-        *regs[inst.rd()] = u32::from_le_bytes(res);
+        let m = self.memory.load(offset, 4);
+
+        regs[inst.rd()] = match funct3 {
+            0b000 => (i32::from_le_bytes([0, 0, 0, m[0]]) >> 24) as u32,
+            0b001 => (i32::from_le_bytes([0, 0, m[0], m[1]]) >> 18) as u32,
+            0b010 => (i32::from_le_bytes([m[0], m[1], m[2], m[3]])) as u32,
+            0b100 => u32::from_le_bytes([0, 0, 0, m[0]]),
+            0b101 => u32::from_le_bytes([0, 0, m[0], m[1]]),
+            0b110 => u32::from_le_bytes([m[0], m[1], m[2], m[3]]),
+            _ => return Err(Error::UnsupportFunct3),
+        };
 
         self.clear_x0(regs);
         self.next_inst(pc);
-    }
-
-    pub fn sset(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) -> Result<()> {
-        let inst = Inst::new(self.inst);
-
-        match inst.funct3() {
-            0b000 => {}
-            0b001 => {}
-            0b010 => {}
-            _ => return Err(Error::UnsupportFunct3),
-        }
 
         Ok(())
     }
 
-    pub fn iset(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) -> Result<()> {
+    pub fn sset(self, pc: &mut u32, regs: &mut [u32]) -> Result<()>
+    where
+        M: Memory<Register = u32> + MemoryMut,
+    {
+        let inst = Inst::new(self.inst);
+
+        let (offset, of) = regs[inst.rs1()].overflowing_add_signed(inst.imm_i_symbol());
+        if of {
+            log::debug!("LOAD overflow");
+        }
+
+        let data = regs[inst.rs2()].to_le_bytes();
+
+        match inst.funct3() {
+            0b000 => self.memory.store(offset, &data[0..1]),
+            0b001 => self.memory.store(offset, &data[0..2]),
+            0b010 => self.memory.store(offset, &data),
+            _ => return Err(Error::UnsupportFunct3),
+        }
+
+        self.clear_x0(regs);
+        self.next_inst(pc);
+
+        Ok(())
+    }
+
+    pub fn iset(self, pc: &mut u32, regs: &mut [u32]) -> Result<()> {
         let inst = Inst::new(self.inst);
         let imm = inst.imm_i_symbol();
         let rd = inst.rd();
-        let rd_data = (*regs[rd]) as i32;
+        let rd_data = (regs[rd]) as i32;
 
         let res = match inst.funct3() {
             0b000 => rd_data + imm,
@@ -167,7 +171,7 @@ impl<'a, M> RiscV32iInstruction<'a, M> {
                 }
             }
             0b011 => {
-                if *regs[rd] < inst.imm_i() {
+                if regs[rd] < inst.imm_i() {
                     1
                 } else {
                     0
@@ -191,53 +195,53 @@ impl<'a, M> RiscV32iInstruction<'a, M> {
             }
             _ => return Err(Error::UnsupportFunct3),
         };
-        *regs[rd] = res as u32;
+        regs[rd] = res as u32;
 
         self.clear_x0(regs);
         self.next_inst(pc);
         Ok(())
     }
 
-    pub fn opset(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) -> Result<()> {
+    pub fn opset(self, pc: &mut u32, regs: &mut [u32]) -> Result<()> {
         let inst = Inst::new(self.inst);
         let funct3 = inst.funct3();
 
         let rs1 = inst.rs1();
         let rs2 = inst.rs2();
 
-        *regs[inst.rd()] = match funct3 {
+        regs[inst.rd()] = match funct3 {
             0b000 => {
                 if inst.funct7() == 0 {
-                    *regs[rs1] + *regs[rs2]
+                    regs[rs1] + regs[rs2]
                 } else {
-                    *regs[rs1] - *regs[rs2]
+                    regs[rs1] - regs[rs2]
                 }
             }
-            0b001 => *regs[rs1] << *regs[rs2],
+            0b001 => regs[rs1] << regs[rs2],
             0b010 => {
-                if (*regs[rs1] as i32) < (*regs[rs2] as i32) {
+                if (regs[rs1] as i32) < (regs[rs2] as i32) {
                     1
                 } else {
                     0
                 }
             }
             0b011 => {
-                if *regs[rs1] < *regs[rs2] {
+                if regs[rs1] < regs[rs2] {
                     1
                 } else {
                     0
                 }
             }
-            0b100 => *regs[rs1] ^ *regs[rs2],
+            0b100 => regs[rs1] ^ regs[rs2],
             0b101 => {
                 if inst.funct7() == 0 {
-                    *regs[rs1] >> *regs[rs2]
+                    regs[rs1] >> regs[rs2]
                 } else {
-                    ((*regs[rs1] as i32) >> *regs[rs2]) as u32
+                    ((regs[rs1] as i32) >> regs[rs2]) as u32
                 }
             }
-            0b110 => *regs[rs1] & *regs[rs2],
-            0b111 => *regs[rs1] | *regs[rs2],
+            0b110 => regs[rs1] & regs[rs2],
+            0b111 => regs[rs1] | regs[rs2],
             _ => return Err(Error::UnsupportFunct3),
         };
 
@@ -248,12 +252,12 @@ impl<'a, M> RiscV32iInstruction<'a, M> {
     }
 }
 
-impl<M: Memory<Register = RiscVRegister>> Instruction<M> for RiscV32iInstruction<'_, M> {
+impl<M: Memory<Register = u32> + MemoryMut> Instruction<M> for RiscV32iLiteInstruction<'_, M> {
     const REGISTER_NUMBER: usize = 32;
 
-    type Register = RiscVRegister;
+    type Register = u32;
 
-    fn execute(self, pc: &mut RiscVRegister, regs: &mut [RiscVRegister]) -> Result<()> {
+    fn execute(self, pc: &mut u32, regs: &mut [u32]) -> Result<()> {
         let opcode = self.inst[0] & 0x7f;
 
         match opcode {
@@ -262,7 +266,7 @@ impl<M: Memory<Register = RiscVRegister>> Instruction<M> for RiscV32iInstruction
             0b1101111 => self.jal(pc, regs),
             0b1100111 => self.jalr(pc, regs),
             0b1100011 => self.bset(pc, regs)?,
-            0b0000011 => self.lset(pc, regs),
+            0b0000011 => self.lset(pc, regs)?,
             0b0100011 => self.sset(pc, regs)?,
             0b0010011 => self.iset(pc, regs)?,
             0b0110011 => self.opset(pc, regs)?,

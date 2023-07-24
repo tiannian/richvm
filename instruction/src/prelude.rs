@@ -20,5 +20,11 @@ pub trait Memory {
     fn length(&self) -> Self::Register;
 
     /// Load data from memory
+    // TODO: Add return result
     fn load(&self, pos: Self::Register, length: u8) -> &[u8];
+}
+
+/// Writable Linear memory
+pub trait MemoryMut: Memory {
+    fn store(&mut self, pos: Self::Register, data: &[u8]);
 }
