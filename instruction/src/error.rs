@@ -1,8 +1,8 @@
 /// Error Type
 pub enum Error {
-    UnsupportFunct3,
-    UnsupportOpcode,
-    ErrorImpl,
+    EnvironmentCall,
+    Breakpoint,
+    FailedDeocdeInstructon,
 }
 
 /// Error type

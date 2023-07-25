@@ -1,9 +1,7 @@
-use core::marker::PhantomData;
-
 use crate::{
     prelude::{Instruction, Memory},
-    riscv::{Inst, RV32Register},
-    Error, MemoryMut, Result,
+    riscv::Inst,
+    MemoryMut, Reg32, Result,
 };
 
 /// Instruction for base of RiscVi32
@@ -12,28 +10,28 @@ use crate::{
 pub struct RiscV32iBaseInstruction<'a, M, I> {
     inst: Inst,
     memory: &'a mut M,
-    marker: PhantomData<I>,
+    sub: I,
 }
 
-fn clear_x0<R: RV32Register>(regs: &mut [R]) {
+fn clear_x0<R: Reg32>(regs: &mut [R]) {
     regs[0].set_reg32(0);
 }
 
-fn next_inst<R: RV32Register>(pc: &mut R) {
+fn next_inst<R: Reg32>(pc: &mut R) {
     pc.add_symbol32(4)
 }
 
 impl<'a, M, I, R> RiscV32iBaseInstruction<'a, M, I>
 where
     I: Instruction<Register = R>,
-    R: RV32Register + Clone,
+    R: Reg32 + Clone,
 {
     /// Create instruction
-    pub fn new(inst: [u8; 4], memory: &'a mut M) -> Self {
+    pub fn new(inst: [u8; 4], memory: &'a mut M, sub: I) -> Self {
         Self {
             inst: Inst::new(inst),
             memory,
-            marker: PhantomData,
+            sub,
         }
     }
 
@@ -80,7 +78,7 @@ where
     }
 
     /// BEQ, BNE, BLT, BGE, BLTU, BLGE instruction
-    pub fn bset(self, pc: &mut R, regs: &[R]) -> Result<()> {
+    pub fn bset(self, pc: &mut R, regs: &mut [R]) -> Result<()> {
         let inst = self.inst;
 
         let res = match inst.funct3() {
@@ -90,7 +88,7 @@ where
             0b101 => regs[inst.rs1()].symbol32() >= regs[inst.rs2()].symbol32(),
             0b110 => regs[inst.rs1()].reg32() < regs[inst.rs2()].reg32(),
             0b111 => regs[inst.rs1()].reg32() >= regs[inst.rs2()].reg32(),
-            _ => return Err(Error::UnsupportFunct3),
+            _ => return self.sub.execute(pc, regs),
         };
 
         if res {
@@ -124,7 +122,7 @@ where
             0b100 => regs[inst.rd()].set_reg32(u32::from_le_bytes([0, 0, 0, m[0]])),
             0b101 => regs[inst.rd()].set_reg32(u32::from_le_bytes([0, 0, m[0], m[1]])),
             0b110 => regs[inst.rd()].set_reg32(u32::from_le_bytes([m[0], m[1], m[2], m[3]])),
-            _ => return Err(Error::UnsupportFunct3),
+            _ => return self.sub.execute(pc, regs),
         };
 
         clear_x0(regs);
@@ -149,7 +147,7 @@ where
             0b000 => self.memory.store(offset, &data[0..1]),
             0b001 => self.memory.store(offset, &data[0..2]),
             0b010 => self.memory.store(offset, &data),
-            _ => return Err(Error::UnsupportFunct3),
+            _ => return self.sub.execute(pc, regs),
         }
 
         clear_x0(regs);
@@ -196,7 +194,7 @@ where
                     rd_data >> size
                 }
             }
-            _ => return Err(Error::UnsupportFunct3),
+            _ => return self.sub.execute(pc, regs),
         };
         regs[rd].set_symbol32(res);
 
@@ -250,7 +248,7 @@ where
             }
             0b110 => regs[rd].set_reg32(regs[rs1].reg32() | regs[rs2].reg32()),
             0b111 => regs[rd].set_reg32(regs[rs1].reg32() & regs[rs2].reg32()),
-            _ => return Err(Error::UnsupportFunct3),
+            _ => return self.sub.execute(pc, regs),
         };
 
         clear_x0(regs);
@@ -263,7 +261,7 @@ where
 impl<M, I, R> Instruction for RiscV32iBaseInstruction<'_, M, I>
 where
     I: Instruction<Register = R>,
-    R: RV32Register + Clone,
+    R: Reg32 + Clone,
     M: Memory<Register = R> + MemoryMut,
 {
     const REGISTER_NUMBER: usize = 32;
@@ -283,9 +281,22 @@ where
             0b0100011 => self.sset(pc, regs)?,
             0b0010011 => self.iset(pc, regs)?,
             0b0110011 => self.opset(pc, regs)?,
-            _ => return Err(Error::UnsupportOpcode),
+            _ => self.sub.execute(pc, regs)?,
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::RiscV32iBaseInstruction;
+
+    #[test]
+    fn test_a() {
+        let mut memory = [0u8; 32];
+
+        let code = [0u8; 4];
+        let _base = RiscV32iBaseInstruction::new(code, &mut memory, ());
     }
 }
