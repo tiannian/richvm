@@ -25,14 +25,6 @@ where
     I: Instruction<Register = R>,
     R: Reg32 + Clone,
 {
-    /// Create instruction
-    pub fn new(inst: [u8; 4], sub: I) -> Self {
-        Self {
-            inst: Inst::new(inst),
-            sub,
-        }
-    }
-
     /// LUI instruction
     pub fn lui(&mut self, pc: &mut R, regs: &mut [R]) {
         let inst = &self.inst;
@@ -308,13 +300,13 @@ where
 
 #[cfg(test)]
 mod test {
+    use crate::{riscv32i::RiscV32iLiteInstruction, Instruction};
+
     use super::RiscV32iBaseInstruction;
 
     #[test]
     fn test_a() {
-        let mut memory = [0u8; 32];
-
         let code = [0u8; 4];
-        let _base = RiscV32iBaseInstruction::new(code, &mut memory, ());
+        let _base = RiscV32iBaseInstruction::<RiscV32iLiteInstruction<()>>::new(&code);
     }
 }

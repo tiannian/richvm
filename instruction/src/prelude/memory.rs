@@ -29,3 +29,12 @@ impl<const N: usize> Memory for [u8; N] {
         &self[pos..end]
     }
 }
+
+impl<const N: usize> MemoryMut for [u8; N] {
+    fn store(&mut self, pos: Self::Register, data: &[u8]) {
+        let pos = pos as usize;
+        let end = pos + data.len();
+
+        self[pos..end].copy_from_slice(data)
+    }
+}
