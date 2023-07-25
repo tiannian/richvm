@@ -1,7 +1,7 @@
 use crate::Result;
 
 /// Instruction
-pub trait Instruction<M> {
+pub trait Instruction {
     /// Number of Register
     const REGISTER_NUMBER: usize;
 

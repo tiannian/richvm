@@ -17,6 +17,10 @@ impl Inst {
         }
     }
 
+    pub fn opcode(&self) -> u8 {
+        (self.inst & 0x7F) as u8
+    }
+
     /// Read rd.
     pub fn rd(&self) -> usize {
         ((self.inst & 0xF80) >> 7) as usize
