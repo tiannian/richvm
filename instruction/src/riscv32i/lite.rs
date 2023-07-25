@@ -1,5 +1,6 @@
 use crate::{riscv::Inst, Error, Instruction, Memory, MemoryMut, Reg32};
 
+/// Instruction for Env call for RISCV32i
 pub struct RV32iEnvInst<I> {
     inst: Inst,
     sub: I,

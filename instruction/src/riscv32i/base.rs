@@ -4,9 +4,9 @@ use crate::{
     Error, MemoryMut, Reg32, Result,
 };
 
-/// Instruction for base of RiscVi32
+/// Instruction for base of RISCV32i
 ///
-/// These instruction have no CSR and FENCE include
+/// These instruction have no CSR, Env and FENCE include
 pub struct RV32iBaseInst<I> {
     inst: Inst,
     sub: I,
