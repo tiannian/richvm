@@ -1,15 +1,14 @@
 use crate::{
     prelude::{Instruction, Memory},
     riscv::Inst,
-    MemoryMut, Reg32, Result,
+    Error, MemoryMut, Reg32, Result,
 };
 
 /// Instruction for base of RiscVi32
 ///
 /// These instruction have no CSR and FENCE include
-pub struct RiscV32iBaseInstruction<'a, M, I> {
+pub struct RiscV32iBaseInstruction<I> {
     inst: Inst,
-    memory: &'a mut M,
     sub: I,
 }
 
@@ -21,23 +20,22 @@ fn next_inst<R: Reg32>(pc: &mut R) {
     pc.add_symbol32(4)
 }
 
-impl<'a, M, I, R> RiscV32iBaseInstruction<'a, M, I>
+impl<I, R> RiscV32iBaseInstruction<I>
 where
     I: Instruction<Register = R>,
     R: Reg32 + Clone,
 {
     /// Create instruction
-    pub fn new(inst: [u8; 4], memory: &'a mut M, sub: I) -> Self {
+    pub fn new(inst: [u8; 4], sub: I) -> Self {
         Self {
             inst: Inst::new(inst),
-            memory,
             sub,
         }
     }
 
     /// LUI instruction
-    pub fn lui(self, pc: &mut R, regs: &mut [R]) {
-        let inst = self.inst;
+    pub fn lui(&mut self, pc: &mut R, regs: &mut [R]) {
+        let inst = &self.inst;
 
         regs[inst.rd()].set_reg32(inst.imm_u());
 
@@ -46,8 +44,8 @@ where
     }
 
     /// AUIPC instruction
-    pub fn auipc(self, pc: &mut R, regs: &mut [R]) {
-        let inst = self.inst;
+    pub fn auipc(&mut self, pc: &mut R, regs: &mut [R]) {
+        let inst = &self.inst;
 
         regs[inst.rd()].set_reg32(pc.reg32() + inst.imm_u());
 
@@ -56,8 +54,8 @@ where
     }
 
     /// JAL instruction
-    pub fn jal(self, pc: &mut R, regs: &mut [R]) {
-        let inst = self.inst;
+    pub fn jal(&mut self, pc: &mut R, regs: &mut [R]) {
+        let inst = &self.inst;
 
         regs[inst.rd()].set_reg32(pc.reg32() + 4);
         pc.add_symbol32(inst.imm_uj_symbol());
@@ -67,8 +65,8 @@ where
     }
 
     /// JALR instruction
-    pub fn jalr(self, pc: &mut R, regs: &mut [R]) {
-        let inst = self.inst;
+    pub fn jalr(&mut self, pc: &mut R, regs: &mut [R]) {
+        let inst = &self.inst;
 
         regs[inst.rd()].set_reg32(pc.reg32() + 4);
 
@@ -78,8 +76,11 @@ where
     }
 
     /// BEQ, BNE, BLT, BGE, BLTU, BLGE instruction
-    pub fn bset(self, pc: &mut R, regs: &mut [R]) -> Result<()> {
-        let inst = self.inst;
+    pub fn bset<M>(&mut self, pc: &mut R, regs: &mut [R], memory: &mut M) -> Result<()>
+    where
+        M: Memory<Register = R> + MemoryMut,
+    {
+        let inst = &self.inst;
 
         let res = match inst.funct3() {
             0b000 => regs[inst.rs1()].reg32() == regs[inst.rs2()].reg32(),
@@ -88,7 +89,7 @@ where
             0b101 => regs[inst.rs1()].symbol32() >= regs[inst.rs2()].symbol32(),
             0b110 => regs[inst.rs1()].reg32() < regs[inst.rs2()].reg32(),
             0b111 => regs[inst.rs1()].reg32() >= regs[inst.rs2()].reg32(),
-            _ => return self.sub.execute(pc, regs),
+            _ => return self.sub.execute(pc, regs, memory),
         };
 
         if res {
@@ -101,17 +102,17 @@ where
     }
 
     /// LB, LH, LW, LBU, LHU, LWU instruction
-    pub fn lset(self, pc: &mut R, regs: &mut [R]) -> Result<()>
+    pub fn lset<M>(&mut self, pc: &mut R, regs: &mut [R], memory: &mut M) -> Result<()>
     where
-        M: Memory<Register = R>,
+        M: Memory<Register = R> + MemoryMut,
     {
-        let inst = self.inst;
+        let inst = &self.inst;
         let funct3 = inst.funct3();
 
         let mut offset = regs[inst.rs1()].clone();
         offset.add_symbol32(inst.imm_i_symbol());
 
-        let m = self.memory.load(offset, 4);
+        let m = memory.load(offset, 4);
 
         match funct3 {
             0b000 => regs[inst.rd()].set_symbol32(i32::from_le_bytes([0, 0, 0, m[0]]) >> 24),
@@ -122,7 +123,7 @@ where
             0b100 => regs[inst.rd()].set_reg32(u32::from_le_bytes([0, 0, 0, m[0]])),
             0b101 => regs[inst.rd()].set_reg32(u32::from_le_bytes([0, 0, m[0], m[1]])),
             0b110 => regs[inst.rd()].set_reg32(u32::from_le_bytes([m[0], m[1], m[2], m[3]])),
-            _ => return self.sub.execute(pc, regs),
+            _ => return self.sub.execute(pc, regs, memory),
         };
 
         clear_x0(regs);
@@ -132,11 +133,11 @@ where
     }
 
     /// SB, SH, SW instruction
-    pub fn sset(self, pc: &mut R, regs: &mut [R]) -> Result<()>
+    pub fn sset<M>(&mut self, pc: &mut R, regs: &mut [R], memory: &mut M) -> Result<()>
     where
         M: Memory<Register = R> + MemoryMut,
     {
-        let inst = self.inst;
+        let inst = &self.inst;
 
         let mut offset = regs[inst.rs1()].clone();
         offset.add_symbol32(inst.imm_i_symbol());
@@ -144,10 +145,10 @@ where
         let data = regs[inst.rs2()].reg32().to_le_bytes();
 
         match inst.funct3() {
-            0b000 => self.memory.store(offset, &data[0..1]),
-            0b001 => self.memory.store(offset, &data[0..2]),
-            0b010 => self.memory.store(offset, &data),
-            _ => return self.sub.execute(pc, regs),
+            0b000 => memory.store(offset, &data[0..1]),
+            0b001 => memory.store(offset, &data[0..2]),
+            0b010 => memory.store(offset, &data),
+            _ => return self.sub.execute(pc, regs, memory),
         }
 
         clear_x0(regs);
@@ -156,8 +157,11 @@ where
         Ok(())
     }
 
-    pub fn iset(self, pc: &mut R, regs: &mut [R]) -> Result<()> {
-        let inst = self.inst;
+    pub fn iset<M>(&mut self, pc: &mut R, regs: &mut [R], memory: &mut M) -> Result<()>
+    where
+        M: Memory<Register = R> + MemoryMut,
+    {
+        let inst = &self.inst;
         let imm = inst.imm_i_symbol();
         let rd = inst.rd();
         let rd_data = regs[rd].symbol32();
@@ -194,7 +198,7 @@ where
                     rd_data >> size
                 }
             }
-            _ => return self.sub.execute(pc, regs),
+            _ => return self.sub.execute(pc, regs, memory),
         };
         regs[rd].set_symbol32(res);
 
@@ -203,8 +207,11 @@ where
         Ok(())
     }
 
-    pub fn opset(self, pc: &mut R, regs: &mut [R]) -> Result<()> {
-        let inst = self.inst;
+    pub fn opset<M>(&mut self, pc: &mut R, regs: &mut [R], memory: &mut M) -> Result<()>
+    where
+        M: Memory<Register = R> + MemoryMut,
+    {
+        let inst = &self.inst;
         let funct3 = inst.funct3();
 
         let rs1 = inst.rs1();
@@ -248,7 +255,7 @@ where
             }
             0b110 => regs[rd].set_reg32(regs[rs1].reg32() | regs[rs2].reg32()),
             0b111 => regs[rd].set_reg32(regs[rs1].reg32() & regs[rs2].reg32()),
-            _ => return self.sub.execute(pc, regs),
+            _ => return self.sub.execute(pc, regs, memory),
         };
 
         clear_x0(regs);
@@ -258,17 +265,28 @@ where
     }
 }
 
-impl<M, I, R> Instruction for RiscV32iBaseInstruction<'_, M, I>
+impl<I, R> Instruction for RiscV32iBaseInstruction<I>
 where
     I: Instruction<Register = R>,
     R: Reg32 + Clone,
-    M: Memory<Register = R> + MemoryMut,
 {
-    const REGISTER_NUMBER: usize = 32;
-
     type Register = R;
 
-    fn execute(self, pc: &mut R, regs: &mut [R]) -> Result<()> {
+    fn new(bytes: &[u8]) -> crate::Result<Self> {
+        if bytes.len() < 4 {
+            return Err(Error::ErrBytecodeLengthNotEnough);
+        }
+
+        let inst = Inst::new([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let sub = I::new(bytes)?;
+
+        Ok(Self { inst, sub })
+    }
+
+    fn execute<M>(&mut self, pc: &mut R, regs: &mut [R], memory: &mut M) -> Result<()>
+    where
+        M: Memory<Register = R> + MemoryMut,
+    {
         let opcode = self.inst.opcode();
 
         match opcode {
@@ -276,12 +294,12 @@ where
             0b0010111 => self.auipc(pc, regs),
             0b1101111 => self.jal(pc, regs),
             0b1100111 => self.jalr(pc, regs),
-            0b1100011 => self.bset(pc, regs)?,
-            0b0000011 => self.lset(pc, regs)?,
-            0b0100011 => self.sset(pc, regs)?,
-            0b0010011 => self.iset(pc, regs)?,
-            0b0110011 => self.opset(pc, regs)?,
-            _ => self.sub.execute(pc, regs)?,
+            0b1100011 => self.bset(pc, regs, memory)?,
+            0b0000011 => self.lset(pc, regs, memory)?,
+            0b0100011 => self.sset(pc, regs, memory)?,
+            0b0010011 => self.iset(pc, regs, memory)?,
+            0b0110011 => self.opset(pc, regs, memory)?,
+            _ => self.sub.execute(pc, regs, memory)?,
         }
 
         Ok(())

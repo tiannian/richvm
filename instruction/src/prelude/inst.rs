@@ -1,23 +1,39 @@
-use crate::{Error, Result};
+use crate::{Error, Memory, MemoryMut, Result};
 
 /// Instruction
-pub trait Instruction {
-    /// Number of Register
-    const REGISTER_NUMBER: usize;
-
+pub trait Instruction: Sized {
     /// Register type, usually u32 or u64
     type Register;
 
+    fn new(bytes: &[u8]) -> Result<Self>;
+
     /// Execute an anstruction.
-    fn execute(self, pc: &mut Self::Register, regs: &mut [Self::Register]) -> Result<()>;
+    fn execute<M>(
+        &mut self,
+        pc: &mut Self::Register,
+        regs: &mut [Self::Register],
+        memory: &mut M,
+    ) -> Result<()>
+    where
+        M: Memory<Register = Self::Register> + MemoryMut;
 }
 
 impl Instruction for () {
-    const REGISTER_NUMBER: usize = 0;
-
     type Register = u32;
 
-    fn execute(self, _pc: &mut Self::Register, _regs: &mut [Self::Register]) -> Result<()> {
-        Err(Error::FailedDeocdeInstructon)
+    fn new(_bytes: &[u8]) -> Result<Self> {
+        Ok(())
+    }
+
+    fn execute<M>(
+        &mut self,
+        _pc: &mut Self::Register,
+        _regs: &mut [Self::Register],
+        _memory: &mut M,
+    ) -> Result<()>
+    where
+        M: Memory<Register = Self::Register> + MemoryMut,
+    {
+        Err(Error::ErrFailedDeocdeInstructon)
     }
 }

@@ -1,8 +1,10 @@
 /// Error Type
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     EnvironmentCall,
     Breakpoint,
-    FailedDeocdeInstructon,
+    ErrFailedDeocdeInstructon,
+    ErrBytecodeLengthNotEnough,
 }
 
 /// Error type
