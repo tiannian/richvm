@@ -1,14 +1,7 @@
-use core::{
-    pin::Pin,
-    task::{Context, Poll},
-};
-
-pub trait AsyncRead {
+pub trait AsyncBytecodeReader {
     type Error;
 
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize, Self::Error>>;
+    type Register;
+
+    async fn read(&mut self, offset: &Self::Register, length: u8) -> Result<&[u8], Self::Error>;
 }
