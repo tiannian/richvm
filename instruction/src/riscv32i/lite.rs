@@ -1,15 +1,16 @@
-use crate::{riscv::Inst, Error, Instruction, Memory, MemoryMut};
+use crate::{riscv::Inst, Error, Instruction, Memory, MemoryMut, Reg32};
 
 pub struct RiscV32iLiteInstruction<I> {
     inst: Inst,
     sub: I,
 }
 
-impl<I> Instruction for RiscV32iLiteInstruction<I>
+impl<I, R> Instruction for RiscV32iLiteInstruction<I>
 where
-    I: Instruction<Register = u32>,
+    I: Instruction<Register = R>,
+    R: Reg32,
 {
-    type Register = u32;
+    type Register = R;
 
     fn new(bytes: &[u8]) -> crate::Result<Self> {
         if bytes.len() < 4 {
@@ -29,7 +30,7 @@ where
         memory: &mut M,
     ) -> crate::Result<()>
     where
-        M: Memory<Register = u32> + MemoryMut,
+        M: Memory<Register = R> + MemoryMut,
     {
         let opcode = self.inst.opcode();
 
