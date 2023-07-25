@@ -1,11 +1,11 @@
 use crate::{riscv::Inst, Error, Instruction, Memory, MemoryMut, Reg32};
 
-pub struct RiscV32iLiteInstruction<I> {
+pub struct RV32iEnvInst<I> {
     inst: Inst,
     sub: I,
 }
 
-impl<I, R> Instruction for RiscV32iLiteInstruction<I>
+impl<I, R> Instruction for RV32iEnvInst<I>
 where
     I: Instruction<Register = R>,
     R: Reg32,
@@ -57,7 +57,7 @@ where
 mod test {
     use crate::{Error, Instruction};
 
-    use super::RiscV32iLiteInstruction;
+    use super::RV32iEnvInst;
 
     #[test]
     fn test_a() {
@@ -66,7 +66,7 @@ mod test {
         let mut regs = [0u32; 32];
 
         let code = [0u8; 4];
-        let mut base = RiscV32iLiteInstruction::<()>::new(&code).unwrap();
+        let mut base = RV32iEnvInst::<()>::new(&code).unwrap();
         let r = base.execute(&mut pc, &mut regs, &mut memory);
 
         assert_eq!(r, Err(Error::ErrFailedDeocdeInstructon))

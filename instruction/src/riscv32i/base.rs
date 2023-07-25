@@ -7,7 +7,7 @@ use crate::{
 /// Instruction for base of RiscVi32
 ///
 /// These instruction have no CSR and FENCE include
-pub struct RiscV32iBaseInstruction<I> {
+pub struct RV32iBaseInst<I> {
     inst: Inst,
     sub: I,
 }
@@ -20,7 +20,7 @@ fn next_inst<R: Reg32>(pc: &mut R) {
     pc.add_symbol32(4)
 }
 
-impl<I, R> RiscV32iBaseInstruction<I>
+impl<I, R> RV32iBaseInst<I>
 where
     I: Instruction<Register = R>,
     R: Reg32 + Clone,
@@ -257,7 +257,7 @@ where
     }
 }
 
-impl<I, R> Instruction for RiscV32iBaseInstruction<I>
+impl<I, R> Instruction for RV32iBaseInst<I>
 where
     I: Instruction<Register = R>,
     R: Reg32 + Clone,
@@ -300,13 +300,13 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{riscv32i::RiscV32iLiteInstruction, Instruction};
+    use crate::{riscv32i::RV32iEnvInst, Instruction};
 
-    use super::RiscV32iBaseInstruction;
+    use super::RV32iBaseInst;
 
     #[test]
     fn test_a() {
         let code = [0u8; 4];
-        let _base = RiscV32iBaseInstruction::<RiscV32iLiteInstruction<()>>::new(&code);
+        let _base = RV32iBaseInst::<RV32iEnvInst<()>>::new(&code);
     }
 }
