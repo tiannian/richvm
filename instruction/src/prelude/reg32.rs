@@ -20,8 +20,16 @@ pub trait Reg32 {
         self.set_reg32(r)
     }
 
-    fn add_reg32(&mut self, v: u32) {
+    fn add_u32(&mut self, v: u32) {
         let (r, o) = self.reg32().overflowing_add(v);
+        if o {
+            log::debug!("Overflow");
+        }
+        self.set_reg32(r)
+    }
+
+    fn add_i32(&mut self, v: i32) {
+        let (r, o) = self.reg32().overflowing_add_signed(v);
         if o {
             log::debug!("Overflow");
         }
